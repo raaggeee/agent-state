@@ -1,0 +1,17 @@
+[
+  {
+    "fact": "I have a great car",
+    "category": "personality",
+    "timestamp": "2026-06-16 20:49:50.426245"
+  },
+  {
+    "fact": "I have a birthday on 8th July",
+    "category": "birthday",
+    "timestamp": "2026-06-16 20:49:50.426376"
+  },
+  {
+    "fact": "I have a pet",
+    "category": "pet",
+    "timestamp": "2026-06-16 20:49:50.426448"
+  }
+]

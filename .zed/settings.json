@@ -1,0 +1,16 @@
+{
+  "linked_edits": false,
+  "enable_language_server": false,
+  "inlay_hints": {
+    "show_other_hints": false,
+    "show_parameter_hints": true,
+    "show_type_hints": true,
+    "show_value_hints": true
+  },
+  "show_completion_documentation": false,
+  "show_completions_on_input": false,
+  "completions": {
+    "words_min_length": 0,
+    "lsp": false
+  }
+}
