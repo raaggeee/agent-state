@@ -12,13 +12,14 @@ import json
 import os 
 from datetime import datetime
 import ollama
+import numpy as np
 
 model = "deepseek-r1:1.5b"
 
 #1. Short Term Memory
 class ConversationManagement:
     def __init__(self, max_message: int = 10):
-        self.conversation_history = []
+        self.conversation_history = [{"role": "system", "content": "You are a helpful assistant. Always respond in english"}]
         self.max_message = max_message
 
     def _trim_if_needed(self):
@@ -97,7 +98,7 @@ class SemeanticKnowledgeStore:
         self.facts = []
         self.embeddings = []
         self._load_facts()
-        self.encoder = None
+        # self.encoder = ollama
 
     def _load_facts(self):
         if os.path.exists(self.knowlegde_store):
@@ -106,36 +107,38 @@ class SemeanticKnowledgeStore:
                 self.facts = data
 
                 for entry in self.facts:
-                    embeds = self.encoder.encode(entry["fact"])
+                    embeds = ollama.embed(model="embeddinggemma:latest", input=entry["fact"])
                     self.embeddings.append(embeds)
 
     def _save_data(self):
         with open(self.knowlegde_store, "w") as f:
             json.dump(self.facts, f, indent=2)
 
-    def add_fat(self, fact: str, category:str):
+    def add_fact(self, fact: str, category:str):
         knowledge = {
             "fact": fact,
             "category": category,
             "timestamp": datetime.now().isoformat()
         }
 
-        embeds = self.encoder.encode(fact)
+        embeds = ollama.embed(model="embeddinggemma:latest", input=fact)
         self.facts.append(knowledge)
         self.embeddings.append(embeds)
         self._save_data()
 
-    def search(self, query:str, top_k:int, threshold:float):
+    def search_fact(self, query:str, top_k:int = 2, threshold:float = 0.8):
         if not self.facts:
             return []
 
-        query_embeddings = self.encoder.encode(query)
+        query_embedding = ollama.embed(model="embeddinggemma:latest", input=query)
+        query_embedding = query_embedding["embeddings"][0]
 
         similarities = []
 
         for i, fact_embedding in enumerate(self.embeddings):
-            similarity = np.dot(query_embedding, fact_embedding) / (
-                np.linalg.norm(query_embedding) * np.linalg.norm(fact_embedding)
+            # print(fact_embedding)
+            similarity = np.dot(query_embedding, fact_embedding["embeddings"][0]) / (
+                np.linalg.norm(query_embedding) * np.linalg.norm(fact_embedding["embeddings"][0])
             )
             similarities.append((similarity, self.facts[i]["fact"]))
 
@@ -148,28 +151,34 @@ class SemeanticKnowledgeStore:
 class Agent:
     def __init__(self):
         self.conversation = ConversationManagement()
-        self.knowledge = KnowledgeStore()
+        self.knowledge = SemeanticKnowledgeStore("knowledge.json")
 
     def chat(self, user_input: str): 
         #check if user_input is for storing in memory
         if self._is_memory(user_input):
-            self._keep_in_memory(user_input)
+            print("\n**Yes keep in memory**\n")
+            return self._keep_in_memory(user_input)
 
         #get relevant facts
         relevant_facts = self.knowledge.search_fact(user_input)
+        print(f"\n**Relevant Facts found: {relevant_facts}**\n")
 
         #build system prompt
-        system_prompt = self.build_system_prompt(relevant_facts)
+        relevant_fact = self.build_system_prompt(relevant_facts)
+        self.conversation.add_user_message(relevant_fact)
+        self.conversation.add_assistant_message("Okay")
+
 
         #add user input to history
-        self.conversation.add_user_message(system_prompt)
+        self.conversation.add_user_message(user_input)
+        print(self.conversation.get_messages())
 
         #get llm reponse (add LLm here)
-        response = ollama.chat(model, self.conversation.get_messages(), think=None)
+        response = ollama.chat(model, self.conversation.get_messages(), think="medium")
         print(response["message"]["content"])
 
         #add response to history
-        self.conversation.add_assistant_message(response)
+        self.conversation.add_assistant_message(response["message"]["content"])
         
         return response
 
@@ -192,37 +201,19 @@ class Agent:
         return f"Remembered in memory."
 
     def build_system_prompt(self, relevant_fact):
-        base_prompt = f"You are a helpful assistant"
-        
+        base_prompt = ""
         if not relevant_fact:
             base_prompt += f"No pre-requisite information about the user"
             return base_prompt
 
-        result = []
-        for mem in relevant_fact:
-            if mem["fact"]:
-                relevant_fact.append(f"fact: {mem["fact"]}")
-
         base_prompt += "What I know about user regarding this query:"
-        base_prompt += "\n".join(result)
+        base_prompt += "\n".join(relevant_fact)
 
         return base_prompt
 
 
 agent = Agent()
 agent.chat("hey")
-# agent.chat("remember about my birthday. I was born on 8th July 2003.")
-agent.chat("Do you know when I was born?")
-
-
-
-
-        
-
-    
-
-
-    
-        
-
-
+agent.chat("remember about my birthday. I was born on 8th July 2003.")
+print("\n")
+agent.chat("Tell me my birthdate.")
