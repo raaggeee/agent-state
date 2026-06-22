@@ -193,11 +193,10 @@ class Agent:
     
     def _keep_in_memory(self, user_input: str):
         #we generally keep 
-        response = f"User said to remember: {user_input}"
+        response = ollama.chat(model, f"check what the user has said and extract key facts which are to be remebered.\n{user_input}", think="medium")
         category = "sample"
 
         self.knowledge.add_fact(response, category)
-
         return f"Remembered in memory."
 
     def build_system_prompt(self, relevant_fact):
