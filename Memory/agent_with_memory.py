@@ -14,7 +14,7 @@ from datetime import datetime
 import ollama
 import numpy as np
 
-model = "deepseek-r1:1.5b"
+model = "gemma3:1b"
 
 #1. Short Term Memory
 class ConversationManagement:
