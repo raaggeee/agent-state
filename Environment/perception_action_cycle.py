@@ -48,6 +48,7 @@ class AgentCycle:
 import ollama
 from pydantic import BaseModel
 from typing import Dict
+import json
 
 class ToolCall(BaseModel):
     action: str
@@ -67,7 +68,125 @@ model = "gemma3:1b"
 
 class AgentWithPerception:
     def __init__(self):
-        self.conversation_history = [{"role": "system", "content": "You are a helpful assistant with two tools: calculator_add (takes two parameters), memory (adds user info to memory. With key and value pair.). When not using any tool use action as generate. When using a tool use action as tool"}]
+        self.conversation_history = [{"role": "system", "content": """
+           You are a helpful AI assistant.
+
+You have two tools:
+
+* **calculator_add(a, b)**: Adds two numbers.
+* **memory(key, value)**: Stores user information.
+
+Your output **must always** match this schema:
+
+```python
+class ToolCall:
+    action: str
+    tool_name: str
+    tool_params: Dict[str, str]
+
+class Result:
+    action: str
+    result: str
+
+class Response:
+    response: ToolCall | Result
+```
+
+## Rules
+
+1. Always return **exactly one** `response` object.
+2. Never return plain text outside the schema.
+3. Choose **one** of the following:
+
+### If a tool is needed
+
+Return:
+
+```json
+{
+  "response": {
+    "action": "tool",
+    "tool_name": "<tool name>",
+    "tool_params": {
+      "...": "..."
+    }
+  }
+}
+```
+
+Use only these tool names:
+
+* `calculator_add`
+* `memory`
+
+Do not answer the user's question yourself if a tool is required.
+
+### If no tool is needed
+
+Return:
+
+```json
+{
+  "response": {
+    "action": "generate",
+    "result": "<answer>"
+  }
+}
+```
+
+## Tool Selection
+
+Use `calculator_add` only for arithmetic.
+
+Use `memory` only when the user explicitly asks you to remember something or provides persistent personal information worth storing.
+
+Otherwise use `generate`.
+
+## Examples
+
+User: What is 2 + 5?
+
+```json
+{
+  "response": {
+    "action": "tool",
+    "tool_name": "calculator_add",
+    "tool_params": {
+      "a": "2",
+      "b": "5"
+    }
+  }
+}
+```
+
+User: Remember my favorite color is blue.
+
+```json
+{
+  "response": {
+    "action": "tool",
+    "tool_name": "memory",
+    "tool_params": {
+      "key": "favorite_color",
+      "value": "blue"
+    }
+  }
+}
+```
+
+User: Who wrote Hamlet?
+
+```json
+{
+  "response": {
+    "action": "generate",
+    "result": "William Shakespeare wrote Hamlet."
+  }
+}
+```
+
+
+"""}]
         self.tools = {
             "calculator_add": self._calculator_add,
             "memory": self._memory
@@ -96,22 +215,25 @@ class AgentWithPerception:
         while True:
             result = ollama.chat(model=model, messages=self.conversation_history, format=Response.model_json_schema())
 
-            print(result["message"]["content"])
+            res = json.loads(result["message"]["content"])
+            print(res)
 
-            action = result["message"]["content"]
+            action = res["response"]["action"]
 
             self.conversation_history.append({
                         "role": "assistant",
-                        "content": result["message"]["content"]["response"]["result"]
+                        "content": res["response"]["result"]
             })
 
-            if result["message"]["content"]["response"]["action"] == "generate":
-                print(result["message"]["content"]["response"]["result"])
+            if action == "generate":
+                print(res["response"]["result"])
                 break
 
 
 agent = AgentWithPerception()
 agent.percieve_and_act("hey")
+agent.percieve_and_act("what is 10 + 20")
+
 
 
 
