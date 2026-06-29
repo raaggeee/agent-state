@@ -167,6 +167,7 @@ User: Remember my favorite color is blue.
     "action": "tool",
     "tool_name": "memory",
     "tool_params": {
+    "action": "save",
       "key": "favorite_color",
       "value": "blue"
     }
@@ -197,13 +198,21 @@ User: Who wrote Hamlet?
     def _calculator_add(self, a:int, b:int):
         return a + b
     
-    def _memory(self, action: str, key: str="", value: str="s"):
-        if action == "save":
+    def _memory(self, action: str, key: str="", value: str=""):
+        if len(value) <= 0:
             self.memory[key] = value
             return "Saved to memory"
         
-        else:
-            return {"value": self.memory.get(key, "not found")}
+        return {"value": self.memory.get(key, "not found")}
+
+    def call_tool(self, tool_name: str, tool_params):
+        if tool_name == "calculator_add":
+            result = self._calculator_add(tool_params["a"], tool_params["b"])
+
+        if tool_name == "_memory":
+            result = self._memory(tool_params["action"], tool_params["key"], tool_params["value"])
+
+        return result
 
     def percieve_and_act(self, user_input:str):
 
@@ -220,12 +229,28 @@ User: Who wrote Hamlet?
 
             action = res["response"]["action"]
 
-            self.conversation_history.append({
-                        "role": "assistant",
-                        "content": res["response"]["result"]
-            })
+            if action == "tool":
+                tool_name = res["response"]["tool_name"]
+                tool_params = res["response"]["tool_params"]
+
+                result = self.call_tool(tool_name, tool_params)
+                print(result)
+
+                self.conversation_history.append({
+                            "role": "user",
+                            "content": "Fetched Tool result"
+                })
+
+                self.conversation_history.append({
+                            "role": "assistant",
+                            "content": result
+                })
 
             if action == "generate":
+                self.conversation_history.append({
+                        "role": "assistant",
+                        "content": res["response"]["result"]
+                })
                 print(res["response"]["result"])
                 break
 
@@ -233,6 +258,8 @@ User: Who wrote Hamlet?
 agent = AgentWithPerception()
 agent.percieve_and_act("hey")
 agent.percieve_and_act("what is 10 + 20")
+agent.percieve_and_act("My name is Raaggee. ")
+
 
 
 
