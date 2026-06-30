@@ -64,129 +64,81 @@ class Response(BaseModel):
     response: ToolCall | Result
     # content: str
 
-model = "gemma3:1b"
+model = "qwen3.5:4b"
 
 class AgentWithPerception:
     def __init__(self):
         self.conversation_history = [{"role": "system", "content": """
-           You are a helpful AI assistant.
+           You are a helpful AI assistant that responds ONLY in JSON matching the schema below. Never include explanation, markdown, or text outside the JSON object.
 
-You have two tools:
+## Schema
 
-* **calculator_add(a, b)**: Adds two numbers.
-* **memory(key, value)**: Stores user information.
+Every response is exactly one JSON object with this shape:
 
-Your output **must always** match this schema:
-
-```python
-class ToolCall:
-    action: str
-    tool_name: str
-    tool_params: Dict[str, str]
-
-class Result:
-    action: str
-    result: str
-
-class Response:
-    response: ToolCall | Result
-```
-
-## Rules
-
-1. Always return **exactly one** `response` object.
-2. Never return plain text outside the schema.
-3. Choose **one** of the following:
-
-### If a tool is needed
-
-Return:
-
-```json
+For a tool call:
 {
   "response": {
     "action": "tool",
-    "tool_name": "<tool name>",
-    "tool_params": {
-      "...": "..."
-    }
+    "tool_name": "<calculator_add | memory>",
+    "tool_params": { "...": "..." }
   }
 }
-```
 
-Use only these tool names:
-
-* `calculator_add`
-* `memory`
-
-Do not answer the user's question yourself if a tool is required.
-
-### If no tool is needed
-
-Return:
-
-```json
+For a final answer:
 {
   "response": {
     "action": "generate",
-    "result": "<answer>"
+    "result": "<your answer as a string>"
   }
 }
-```
 
-## Tool Selection
+There are no other valid values for "action". Every field shown above is REQUIRED — never omit tool_name or tool_params when action is "tool", and never omit result when action is "generate".
 
-Use `calculator_add` only for arithmetic.
+## Tools
 
-Use `memory` only when the user explicitly asks you to remember something or provides persistent personal information worth storing.
+calculator_add
+- Use only for arithmetic addition.
+- tool_params MUST contain exactly: {"a": "<number>", "b": "<number>"}
+- Do not add, rename, or remove keys.
 
-Otherwise use `generate`.
+memory
+- Use only when the user explicitly asks you to remember something, or states a persistent personal fact worth storing (e.g. name, preference, ongoing project detail).
+- tool_params MUST contain exactly: {"key": "<short identifier>", "value": "<the information to store>"}
+- Do not add extra keys like "action" inside tool_params.
+- Do NOT use memory for facts that are not about the user, or for one-off questions.
+
+If no tool fits, use "generate" and answer directly from your own knowledge.
+
+## Critical rules
+
+1. Output exactly one JSON object. No prose, no markdown fences, no commentary before or after.
+2. Never call a tool with empty, missing, or placeholder values in tool_params. If you don't have enough information to fill every required param, ask the user for it using action "generate" instead of guessing.
+3. Never invent tool_params keys that aren't listed for that tool.
+4. If a previous message in this conversation shows a tool result, use that result to produce a "generate" response — do not call the same tool again with the same inputs.
+5. Only one tool call per response. If multiple steps are needed, return one tool call now; you'll be asked again after seeing its result.
 
 ## Examples
 
 User: What is 2 + 5?
+{"response": {"action": "tool", "tool_name": "calculator_add", "tool_params": {"a": "2", "b": "5"}}}
 
-```json
-{
-  "response": {
-    "action": "tool",
-    "tool_name": "calculator_add",
-    "tool_params": {
-      "a": "2",
-      "b": "5"
-    }
-  }
-}
-```
+(Tool result returned: "7")
+{"response": {"action": "generate", "result": "2 + 5 is 7."}}
 
 User: Remember my favorite color is blue.
+{"response": {"action": "tool", "tool_name": "memory", "tool_params": {"key": "favorite_color", "value": "blue"}}}
 
-```json
-{
-  "response": {
-    "action": "tool",
-    "tool_name": "memory",
-    "tool_params": {
-    "action": "save",
-      "key": "favorite_color",
-      "value": "blue"
-    }
-  }
-}
-```
+(Tool result returned: "saved")
+{"response": {"action": "generate", "result": "Got it, I'll remember your favorite color is blue."}}
 
 User: Who wrote Hamlet?
+{"response": {"action": "generate", "result": "William Shakespeare wrote Hamlet."}}
 
-```json
-{
-  "response": {
-    "action": "generate",
-    "result": "William Shakespeare wrote Hamlet."
-  }
-}
-```
+User: Add five and ten please
+{"response": {"action": "tool", "tool_name": "calculator_add", "tool_params": {"a": "5", "b": "10"}}}
 
-
+User: Remember something for me.
+{"response": {"action": "generate", "result": "Sure — what would you like me to remember?"}}
 """}]
         self.tools = {
             "calculator_add": self._calculator_add,
@@ -196,7 +148,7 @@ User: Who wrote Hamlet?
         self.memory: Dict[str, str] = {}
 
     def _calculator_add(self, a:int, b:int):
-        return a + b
+        return int(a) + int(b)
     
     def _memory(self, action: str, key: str="", value: str=""):
         if len(value) <= 0:
@@ -207,12 +159,15 @@ User: Who wrote Hamlet?
 
     def call_tool(self, tool_name: str, tool_params):
         if tool_name == "calculator_add":
-            result = self._calculator_add(tool_params["a"], tool_params["b"])
+            try:
+                result = self._calculator_add(tool_params["a"], tool_params["b"])
+                return result
+            except:
+                return "No params found"
 
         if tool_name == "_memory":
             result = self._memory(tool_params["action"], tool_params["key"], tool_params["value"])
-
-        return result
+            return result
 
     def percieve_and_act(self, user_input:str):
 
@@ -238,13 +193,9 @@ User: Who wrote Hamlet?
 
                 self.conversation_history.append({
                             "role": "user",
-                            "content": "Fetched Tool result"
+                            "content": f"Tool {tool_name} returned {result}",
                 })
-
-                self.conversation_history.append({
-                            "role": "assistant",
-                            "content": result
-                })
+                continue
 
             if action == "generate":
                 self.conversation_history.append({
@@ -258,7 +209,6 @@ User: Who wrote Hamlet?
 agent = AgentWithPerception()
 agent.percieve_and_act("hey")
 agent.percieve_and_act("what is 10 + 20")
-agent.percieve_and_act("My name is Raaggee. ")
 
 
 
